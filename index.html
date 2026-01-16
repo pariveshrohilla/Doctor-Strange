@@ -1,0 +1,397 @@
+<!--- 
+Most Basic One 
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+	<title>Hand HUD – IP Webcam</title>
+	<link rel="preconnect" href="https://cdn.jsdelivr.net" />
+	<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+	<div id="app">
+		
+	
+		<img id="ipcam" crossorigin="anonymous" />
+
+		
+		<canvas id="videoCanvas" style="display:none"></canvas>
+
+		
+		<canvas id="overlay"></canvas>
+
+		<div id="cta">
+			<button id="startBtn">Connect Phone Camera</button>
+		</div>
+	</div>
+
+	<script type="module">
+		import { HandLandmarker, FilesetResolver } from
+		"https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/vision_bundle.mjs";
+
+		const img = document.getElementById("ipcam");
+		const videoCanvas = document.getElementById("videoCanvas");
+		const vctx = videoCanvas.getContext("2d");
+
+		const overlay = document.getElementById("overlay");
+		const ctx = overlay.getContext("2d");
+		const startBtn = document.getElementById("startBtn");
+
+		let handLandmarker;
+		let lastTime = 0;
+
+		/* ================= MediaPipe ================= */
+
+		async function createDetector() {
+			const resolver = await FilesetResolver.forVisionTasks(
+				"https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm"
+			);
+
+			handLandmarker = await HandLandmarker.createFromOptions(resolver, {
+				baseOptions: {
+					modelAssetPath:
+					"https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task",
+					delegate: "GPU"
+				},
+				numHands: 2,
+				runningMode: "VIDEO"
+			});
+		}
+
+		/* ================= Init ================= */
+
+		async function start() {
+			await createDetector();
+
+			// 🔴 CHANGE THIS TO YOUR PHONE IP
+			img.src = "http://192.168.1.104:8080/video";
+
+			img.onload = () => {
+				videoCanvas.width = img.naturalWidth;
+				videoCanvas.height = img.naturalHeight;
+
+				overlay.width = img.naturalWidth;
+				overlay.height = img.naturalHeight;
+
+				requestAnimationFrame(loop);
+			};
+		}
+
+		startBtn.onclick = () => {
+			startBtn.disabled = true;
+			start().catch(err => {
+				console.error(err);
+				startBtn.disabled = false;
+			});
+		};
+
+		/* ================= Utils ================= */
+
+		function toPx(p) {
+			return [
+				p.x * videoCanvas.width,
+				p.y * videoCanvas.height
+			];
+		}
+
+		/* ================= Loop ================= */
+
+		function loop(time) {
+			// draw MJPEG frame into canvas
+			vctx.drawImage(img, 0, 0, videoCanvas.width, videoCanvas.height);
+
+			if (time !== lastTime) {
+				const result = handLandmarker.detectForVideo(
+					videoCanvas,
+					performance.now()
+				);
+
+				ctx.clearRect(0, 0, overlay.width, overlay.height);
+
+				(result.landmarks || []).forEach(hand => {
+					drawHand(hand);
+				});
+
+				lastTime = time;
+			}
+
+			requestAnimationFrame(loop);
+		}
+
+		/* ================= Drawing ================= */
+
+		const CONNECTIONS = [
+			[0,1],[1,2],[2,3],[3,4],
+			[0,5],[5,6],[6,7],[7,8],
+			[0,9],[9,10],[10,11],[11,12],
+			[0,13],[13,14],[14,15],[15,16],
+			[0,17],[17,18],[18,19],[19,20]
+		];
+
+		function drawHand(landmarks) {
+			ctx.strokeStyle = "#00ffff";
+			ctx.lineWidth = 2;
+			ctx.shadowColor = "#00ffff";
+			ctx.shadowBlur = 10;
+
+			ctx.beginPath();
+			for (const [a,b] of CONNECTIONS) {
+				const pa = toPx(landmarks[a]);
+				const pb = toPx(landmarks[b]);
+				ctx.moveTo(pa[0], pa[1]);
+				ctx.lineTo(pb[0], pb[1]);
+			}
+			ctx.stroke();
+
+			for (const p of landmarks) {
+				const [x,y] = toPx(p);
+				ctx.beginPath();
+				ctx.arc(x, y, 3, 0, Math.PI * 2);
+				ctx.fillStyle = "#ffffff";
+				ctx.fill();
+			}
+		}
+	</script>
+</body>
+</html> -->
+
+
+"A Bit improved Version from Above"
+
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Hand HUD – IP Webcam</title>
+<style>
+	body { margin: 0; background: #000; overflow: hidden; }
+	canvas { position: absolute; top: 0; left: 0; }
+	#ipcam { display:none; }
+	#cta { position: fixed; bottom: 16px; left: 16px; z-index: 10; }
+</style>
+</head>
+<body>
+
+<img id="ipcam" crossorigin="anonymous">
+<canvas id="videoCanvas"></canvas>
+<canvas id="overlay"></canvas>
+
+<div id="cta">
+	<button id="startBtn">Connect Phone Camera</button>
+</div>
+
+<script type="module">
+import { HandLandmarker, FilesetResolver } from
+"https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/vision_bundle.mjs";
+
+const img = document.getElementById("ipcam");
+const videoCanvas = document.getElementById("videoCanvas");
+const vctx = videoCanvas.getContext("2d");
+
+const overlay = document.getElementById("overlay");
+const ctx = overlay.getContext("2d");
+
+const startBtn = document.getElementById("startBtn");
+
+let handLandmarker;
+let lastTime = -1;
+
+/* ==================== EFFECT SYSTEM ==================== */
+
+const effects = {
+	trails: [],
+	energy: [],
+	particles: []
+};
+
+/* ==================== MEDIAPIPE ==================== */
+
+async function createDetector() {
+	const resolver = await FilesetResolver.forVisionTasks(
+		"https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm"
+	);
+
+	handLandmarker = await HandLandmarker.createFromOptions(resolver, {
+		baseOptions: {
+			modelAssetPath:
+			"https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task",
+			delegate: "GPU"
+		},
+		numHands: 2,
+		runningMode: "VIDEO"
+	});
+}
+
+/* ==================== START ==================== */
+
+async function start() {
+	await createDetector();
+
+	img.src = "http://192.168.1.104:8080/video"; // 🔴 CHANGE IP
+
+	img.onload = () => {
+		videoCanvas.width = img.naturalWidth;
+		videoCanvas.height = img.naturalHeight;
+		overlay.width = img.naturalWidth;
+		overlay.height = img.naturalHeight;
+		requestAnimationFrame(loop);
+	};
+}
+
+startBtn.onclick = () => {
+	startBtn.disabled = true;
+	start().catch(err => {
+		console.error(err);
+		startBtn.disabled = false;
+	});
+};
+
+/* ==================== UTILS ==================== */
+
+function toPx(p) {
+	return [
+		p.x * videoCanvas.width,
+		p.y * videoCanvas.height
+	];
+}
+
+const CONNECTIONS = [
+	[0,1],[1,2],[2,3],[3,4],
+	[0,5],[5,6],[6,7],[7,8],
+	[0,9],[9,10],[10,11],[11,12],
+	[0,13],[13,14],[14,15],[15,16],
+	[0,17],[17,18],[18,19],[19,20]
+];
+
+/* ==================== DRAW ==================== */
+
+function drawRing(x, y, r, rot) {
+	ctx.save();
+	ctx.translate(x, y);
+	ctx.rotate(rot);
+	ctx.strokeStyle = "#ffffff";
+	ctx.lineWidth = 3;
+	ctx.shadowColor = "#8800FF";
+	ctx.shadowBlur = 38;
+	ctx.beginPath();
+	ctx.arc(0, 0, r, 0.6 * Math.PI, 1.4 * Math.PI);
+	ctx.stroke();
+	ctx.restore();
+}
+
+function drawHand(landmarks, t) {
+	// Skeleton
+	ctx.strokeStyle = "#ffffff";
+	ctx.lineWidth = 2;
+	ctx.shadowColor = "#00ffff";
+	ctx.shadowBlur = 10;
+
+	ctx.beginPath();
+	for (const [a,b] of CONNECTIONS) {
+		const pa = toPx(landmarks[a]);
+		const pb = toPx(landmarks[b]);
+		ctx.moveTo(pa[0], pa[1]);
+		ctx.lineTo(pb[0], pb[1]);
+
+		effects.trails.push({ x: pa[0], y: pa[1], life: 20, a: 0.8 });
+	}
+	ctx.stroke();
+
+	// Joints + rings
+	landmarks.forEach((p,i) => {
+		const [x,y] = toPx(p);
+		ctx.beginPath();
+		ctx.arc(x, y, 2.5, 0, Math.PI * 2);
+		ctx.fillStyle = "#ffffff";
+		ctx.fill();
+
+		if ([4,8,12,16,20].includes(i)) {
+			drawRing(x, y, 10, t * 0.002 + i);
+			if (Math.random() < 0.3) {
+				effects.energy.push({
+					x, y,
+					vx:(Math.random()-0.5)*2,
+					vy:(Math.random()-0.5)*2,
+					life:40
+				});
+			}
+		}
+	});
+}
+
+/* ==================== EFFECTS ==================== */
+
+function updateEffects() {
+	effects.trails = effects.trails.filter(p => {
+		p.life--; p.a *= 0.95; return p.life > 0;
+	});
+
+	effects.energy = effects.energy.filter(p => {
+		p.x += p.vx; p.y += p.vy; p.life--;
+		return p.life > 0;
+	});
+
+	if (Math.random() < 0.05) {
+		effects.particles.push({
+			x: Math.random()*overlay.width,
+			y: Math.random()*overlay.height,
+			life:100
+		});
+	}
+
+	effects.particles = effects.particles.filter(p => --p.life > 0);
+}
+
+function drawEffects() {
+	effects.trails.forEach(p => {
+		ctx.globalAlpha = p.a;
+		ctx.fillStyle = "#00ffff";
+		ctx.beginPath();
+		ctx.arc(p.x, p.y, 2, 0, Math.PI*2);
+		ctx.fill();
+	});
+
+	effects.energy.forEach(p => {
+		ctx.globalAlpha = p.life/40;
+		ctx.fillStyle = "#ffffff";
+		ctx.shadowBlur = 12;
+		ctx.beginPath();
+		ctx.arc(p.x, p.y, 3, 0, Math.PI*2);
+		ctx.fill();
+	});
+
+	effects.particles.forEach(p => {
+		ctx.globalAlpha = p.life/100;
+		ctx.fillStyle = "#ffffff";
+		ctx.beginPath();
+		ctx.arc(p.x, p.y, 1.5, 0, Math.PI*2);
+		ctx.fill();
+	});
+
+	ctx.globalAlpha = 1;
+}
+
+/* ==================== LOOP ==================== */
+
+function loop(t) {
+	vctx.drawImage(img, 0, 0, videoCanvas.width, videoCanvas.height);
+
+	if (t !== lastTime) {
+		const result = handLandmarker.detectForVideo(videoCanvas, performance.now());
+
+		ctx.clearRect(0,0,overlay.width,overlay.height);
+		updateEffects();
+		drawEffects();
+
+		(result.landmarks || []).forEach(hand => drawHand(hand, t));
+		lastTime = t;
+	}
+	requestAnimationFrame(loop);
+}
+</script>
+</body>
+</html> 
+
+
